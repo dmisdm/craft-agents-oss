@@ -164,6 +164,53 @@ describe('startWebuiHttpServer', () => {
     })
   })
 
+  it('upgrades ws:// to wss:// when HTTPS is terminated at a reverse proxy', async () => {
+    // Container speaks plain HTTP/WS (no local TLS), so the configured protocol
+    // is 'ws' — but the browser loaded the page over HTTPS via the proxy.
+    const { baseUrl } = await createServer({ wsProtocol: 'ws', wsPort: 9100 })
+
+    const authRes = await fetch(`${baseUrl}/api/auth`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Proto': 'https',
+        'X-Forwarded-Host': 'craft.example.com',
+      },
+      body: JSON.stringify({ password: PASSWORD }),
+    })
+
+    const configRes = await fetch(`${baseUrl}/api/config`, {
+      headers: {
+        cookie: extractSessionCookie(authRes),
+        'X-Forwarded-Proto': 'https',
+        'X-Forwarded-Host': 'craft.example.com',
+      },
+    })
+
+    expect(configRes.status).toBe(200)
+    expect(await configRes.json()).toEqual({
+      wsUrl: 'wss://craft.example.com:9100',
+    })
+  })
+
+  it('keeps ws:// for direct plain-HTTP connections with no proxy headers', async () => {
+    const { baseUrl } = await createServer({ wsProtocol: 'ws', wsPort: 9100 })
+
+    const authRes = await fetch(`${baseUrl}/api/auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: PASSWORD }),
+    })
+
+    const configRes = await fetch(`${baseUrl}/api/config`, {
+      headers: { cookie: extractSessionCookie(authRes) },
+    })
+
+    expect(configRes.status).toBe(200)
+    const { wsUrl } = await configRes.json() as { wsUrl: string }
+    expect(wsUrl.startsWith('ws://')).toBe(true)
+  })
+
   it('returns an explicit public websocket URL override from /api/config', async () => {
     const { baseUrl } = await createServer({
       publicWsUrl: 'wss://craft.example.com/ws',

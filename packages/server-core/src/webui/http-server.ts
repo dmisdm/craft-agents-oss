@@ -98,12 +98,22 @@ export function resolveWebSocketUrl(
 ): string {
   if (publicWsUrl) return publicWsUrl
 
+  // Derive the WS scheme from the (possibly proxied) request protocol rather
+  // than the statically configured one. When HTTPS is terminated at a reverse
+  // proxy (e.g. Traefik) that forwards plain HTTP to us, the container has no
+  // TLS of its own — so `wsProtocol` is 'ws' — but the page was loaded over
+  // HTTPS and the browser blocks an insecure `ws://` connection as mixed
+  // content. `x-forwarded-proto: https` is the signal that we must hand back a
+  // secure `wss://` URL. Falls back to the configured protocol for direct
+  // connections with no forwarded/proto signal. Mirrors shouldUseSecureCookies.
+  const scheme: 'ws' | 'wss' = getRequestProto(req) === 'https' ? 'wss' : wsProtocol
+
   const host = getRequestHost(req)
   if (host) {
-    return `${wsProtocol}://${formatHostWithPort(host, wsPort)}`
+    return `${scheme}://${formatHostWithPort(host, wsPort)}`
   }
 
-  return `${wsProtocol}://127.0.0.1:${wsPort}`
+  return `${scheme}://127.0.0.1:${wsPort}`
 }
 
 // ---------------------------------------------------------------------------
