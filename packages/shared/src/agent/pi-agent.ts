@@ -51,6 +51,8 @@ import type { ProjectPromptContext } from '../projects/types.ts';
 
 // Credential manager for token storage
 import { getCredentialManager } from '../credentials/manager.ts';
+// AWS implicit credential-chain resolution (ECS/IMDS/SSO/profile) for Bedrock
+import { resolveAwsChainCredentials } from '../credentials/aws-chain.ts';
 
 // ChatGPT OAuth token refresh (used when Pi routes ChatGPT auth)
 import { refreshChatGptTokens } from '../auth/chatgpt-oauth.ts';
@@ -480,7 +482,7 @@ export class PiAgent extends BaseAgent {
     }
 
     // Derive AWS env vars from the piAuth credential (single fetch, no race).
-    const awsEnv = this.buildAwsEnv(piAuth, runtime);
+    const awsEnv = await this.buildAwsEnv(piAuth, runtime);
 
     // Spawn the subprocess
     const child = spawn(nodePath, args, {
@@ -724,14 +726,28 @@ export class PiAgent extends BaseAgent {
    * (env vars), not from Pi AuthStorage. We inject at spawn time so credentials
    * are scoped to the subprocess and don't leak to the main process.
    *
-   * NOTE: IAM credentials (especially STS session tokens) are immutable after
-   * spawn — they cannot be refreshed in a running subprocess. Long sessions
-   * with temporary credentials (~1h STS tokens) will fail on expiry.
+   * Two credential paths:
+   *  - Explicit static IAM credentials (`authType: 'iam_credentials'`): injected
+   *    verbatim from the credential store.
+   *  - Implicit / environment auth (`authType: 'environment'`, or a Bedrock setup
+   *    test with no static key): resolved here via the canonical AWS node
+   *    provider chain (env → SSO → shared config profiles → web identity → ECS
+   *    container credential URLs → EC2 IMDS). Resolving in the host process — the
+   *    one that owns the ambient AWS environment — ensures ECS container URLs and
+   *    IMDS are actually loaded (they are otherwise never resolved when the Pi
+   *    SDK only sees non-credential env vars), and hands the subprocess the
+   *    resolved STS session token ready to use.
+   *
+   * NOTE: injected credentials (especially STS session tokens) are immutable
+   * after spawn — they cannot be refreshed in a running subprocess. Each new
+   * spawn re-resolves the chain, so rotated ECS/STS credentials are picked up on
+   * the next spawn; very long single sessions with short-lived tokens still need
+   * a restart on expiry.
    */
-  private buildAwsEnv(
+  private async buildAwsEnv(
     piAuth: Awaited<ReturnType<PiAgent['getPiAuth']>>,
     runtime: { piAuthProvider?: string },
-  ): Record<string, string> {
+  ): Promise<Record<string, string>> {
     if (runtime.piAuthProvider !== 'amazon-bedrock') return {};
 
     const env: Record<string, string> = {};
@@ -741,7 +757,25 @@ export class PiAgent extends BaseAgent {
       env.AWS_SECRET_ACCESS_KEY = piAuth.credential.secretAccessKey;
       if (piAuth.credential.region) env.AWS_REGION = piAuth.credential.region;
       if (piAuth.credential.sessionToken) env.AWS_SESSION_TOKEN = piAuth.credential.sessionToken;
-      this.debug('Injecting IAM credentials into subprocess env for AWS SDK');
+      this.debug('Injecting stored IAM credentials into subprocess env for AWS SDK');
+    } else {
+      // Implicit / environment auth: resolve the AWS credential chain in this
+      // process. Only inject when the chain yields credentials AND static AWS
+      // keys aren't already present in the ambient env (which the subprocess
+      // inherits and the Pi SDK reads directly) — this covers ECS task roles,
+      // IMDS, SSO, and profiles without overriding an explicit env credential.
+      const hasAmbientStaticKeys = !!process.env.AWS_ACCESS_KEY_ID && !!process.env.AWS_SECRET_ACCESS_KEY;
+      if (!hasAmbientStaticKeys) {
+        const resolved = await resolveAwsChainCredentials();
+        if (resolved) {
+          env.AWS_ACCESS_KEY_ID = resolved.accessKeyId;
+          env.AWS_SECRET_ACCESS_KEY = resolved.secretAccessKey;
+          if (resolved.sessionToken) env.AWS_SESSION_TOKEN = resolved.sessionToken;
+          this.debug('Resolved AWS credential chain (ECS/IMDS/SSO/profile) and injected into subprocess env');
+        } else {
+          this.debug('No AWS credentials resolved from the default chain; subprocess will inherit the ambient AWS env');
+        }
+      }
     }
 
     // Defensive: force HTTP/1.1 for Bedrock. AWS SDK v3 defaults to HTTP/2

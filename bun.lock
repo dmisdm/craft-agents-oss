@@ -394,6 +394,7 @@
       "name": "@craft-agent/shared",
       "version": "0.10.5",
       "dependencies": {
+        "@aws-sdk/credential-provider-node": "^3.969.0",
         "@craft-agent/core": "workspace:*",
         "@craft-agent/session-tools-core": "workspace:*",
         "@earendil-works/pi-agent-core": "0.80.3",

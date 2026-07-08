@@ -316,7 +316,10 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
   server.handle(RPC_CHANNELS.settings.TEST_LLM_CONNECTION_SETUP, async (_ctx, params: import('@craft-agent/shared/protocol').TestLlmConnectionParams): Promise<import('@craft-agent/shared/protocol').TestLlmConnectionResult> => {
     const { provider, apiKey, baseUrl, model, piAuthProvider, customEndpoint } = params
     const trimmedKey = apiKey?.trim() ?? ''
-    const allowEmptyApiKey = !setupTestRequiresApiKey(baseUrl)
+    // Bedrock authenticates via IAM/ambient AWS credentials (resolved by the
+    // agent's AWS credential chain), not an API key — so an empty key is valid.
+    const isBedrock = piAuthProvider === 'amazon-bedrock'
+    const allowEmptyApiKey = isBedrock || !setupTestRequiresApiKey(baseUrl)
 
     if (!trimmedKey && !allowEmptyApiKey) {
       return { success: false, error: 'API key is required' }
