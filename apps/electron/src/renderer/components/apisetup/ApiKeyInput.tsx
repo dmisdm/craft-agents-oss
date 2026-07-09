@@ -14,6 +14,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Command as CommandPrimitive } from "cmdk"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import {
   DropdownMenu,
@@ -165,8 +166,10 @@ function getPresetForUrl(url: string, presets: Preset[]): PresetKey {
 }
 
 function parseModelList(value: string): string[] {
+  // Accept both comma- and newline-separated lists so users can paste a
+  // multi-line model allowlist (e.g. a Bedrock permission boundary).
   return value
-    .split(',')
+    .split(/[\n,]/)
     .map((entry) => entry.trim())
     .filter(Boolean)
 }
@@ -785,7 +788,7 @@ export function ApiKeyInput({
       ) : !isDefaultProviderPreset && (
         <div className="space-y-2">
           <Label htmlFor="connection-default-model" className="text-muted-foreground font-normal">
-            Default Model{' '}
+            {isBedrock ? 'Model Allowlist' : 'Default Model'}{' '}
             <span className="text-foreground/30">
               · {!isBedrock && baseUrl.trim() ? 'required' : 'optional'}
             </span>
@@ -795,24 +798,42 @@ export function ApiKeyInput({
             "bg-foreground-2 focus-within:bg-background",
             modelError && "ring-1 ring-destructive/40"
           )}>
-            <Input
-              id="connection-default-model"
-              type="text"
-              value={connectionDefaultModel}
-              onChange={(e) => {
-                setConnectionDefaultModel(e.target.value)
-                setModelError(null)
-              }}
-              placeholder="e.g. claude-opus-4-8, claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5"
-              className="border-0 bg-transparent shadow-none"
-              disabled={isDisabled}
-            />
+            {isBedrock ? (
+              <Textarea
+                id="connection-default-model"
+                value={connectionDefaultModel}
+                onChange={(e) => {
+                  setConnectionDefaultModel(e.target.value)
+                  setModelError(null)
+                }}
+                placeholder={"One model ID per line, e.g.\nau.anthropic.claude-sonnet-4-6\nau.anthropic.claude-haiku-4-5-20251001-v1:0\namazon.nova-lite-v1:0\nqwen.qwen3-coder-next"}
+                rows={6}
+                spellCheck={false}
+                className="border-0 bg-transparent shadow-none font-mono text-xs resize-y"
+                disabled={isDisabled}
+              />
+            ) : (
+              <Input
+                id="connection-default-model"
+                type="text"
+                value={connectionDefaultModel}
+                onChange={(e) => {
+                  setConnectionDefaultModel(e.target.value)
+                  setModelError(null)
+                }}
+                placeholder="e.g. claude-opus-4-8, claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5"
+                className="border-0 bg-transparent shadow-none"
+                disabled={isDisabled}
+              />
+            )}
           </div>
           {modelError && (
             <p className="text-xs text-destructive">{modelError}</p>
           )}
           <p className="text-xs text-foreground/30">
-            Comma-separated list. The first model is the default. The last is used for summarization.
+            {isBedrock
+              ? 'One model ID per line (or comma-separated). Enter exact, region-qualified Bedrock IDs — they are stored and sent verbatim. The first is the default; the last is used for summarization.'
+              : 'Comma-separated list. The first model is the default. The last is used for summarization.'}
           </p>
           {(activePreset === 'custom' || !activePreset) && (
             <p className="text-xs text-foreground/30">
