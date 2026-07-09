@@ -170,6 +170,10 @@ export class PiAgent extends BaseAgent {
   private readline: ReadlineInterface | null = null;
   private subprocessReady: Promise<void> | null = null;
   private subprocessReadyResolve: (() => void) | null = null;
+  // Rejects the ready promise when the subprocess dies before signalling ready
+  // (i.e. a startup crash), so callers surface the error instead of hanging.
+  private subprocessReadyReject: ((err: Error) => void) | null = null;
+  private subprocessBecameReady = false;
 
   // Pi session ID (managed by subprocess, reported back)
   private piSessionId: string | null = null;
@@ -438,8 +442,10 @@ export class PiAgent extends BaseAgent {
     this.resetSubprocessErrorDedup();
 
     // Set up ready promise before spawning
-    this.subprocessReady = new Promise<void>((resolve) => {
+    this.subprocessBecameReady = false;
+    this.subprocessReady = new Promise<void>((resolve, reject) => {
       this.subprocessReadyResolve = resolve;
+      this.subprocessReadyReject = reject;
     });
 
     // Build session ID and session dir path upfront (used for spawn env + init command)
@@ -961,6 +967,7 @@ export class PiAgent extends BaseAgent {
           this.piSessionId = msg.sessionId as string;
           this.config.onSdkSessionIdUpdate?.(this.piSessionId!);
         }
+        this.subprocessBecameReady = true;
         this.subprocessReadyResolve?.();
         break;
 
@@ -1776,8 +1783,23 @@ export class PiAgent extends BaseAgent {
     this.subprocess = null;
     this.readline = null;
     this.resetSubprocessErrorDedup();
+
+    // Startup crash: the subprocess exited before signalling ready. Reject the
+    // ready promise (which ensureSubprocess/spawnSubprocess await) so the caller
+    // surfaces a real error to the client instead of hanging forever. Include the
+    // captured stderr so the actual failure (e.g. a bundle/runtime error) is
+    // visible rather than a bare "exited".
+    const readyReject = this.subprocessReadyReject;
+    const becameReady = this.subprocessBecameReady;
     this.subprocessReady = null;
     this.subprocessReadyResolve = null;
+    this.subprocessReadyReject = null;
+    if (!becameReady && readyReject) {
+      const exitReason = signal ? `signal ${signal}` : `code ${code}`;
+      const stderr = this.getRecentStderr().trim();
+      const detail = stderr ? `\n--- subprocess stderr (last ~8KB) ---\n${stderr}` : '';
+      readyReject(new Error(`Pi subprocess failed to start (${exitReason})${detail}`));
+    }
 
     // If we were processing, emit error + complete
     if (this._isProcessing) {

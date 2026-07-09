@@ -14,6 +14,11 @@
  * separate process, avoiding bundling issues in the Electron main process.
  */
 
+// Bun compatibility shim for undici's markAsUncloneable use — MUST stay first,
+// before any import that pulls in undici (e.g. @earendil-works/pi-coding-agent),
+// so the polyfill is applied before undici's CacheStorage initializes.
+import './bun-undici-polyfill.ts';
+
 import http from 'node:http';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
