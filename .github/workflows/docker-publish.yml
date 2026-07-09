@@ -4,6 +4,9 @@ name: Docker Publish (Server)
 # it to the GitHub Container Registry (ghcr.io). Uses the built-in GITHUB_TOKEN,
 # so no external registry/cloud credentials are required.
 #
+# The image is built for linux/arm64 on GitHub's native ARM runner
+# (ubuntu-24.04-arm) — no QEMU emulation. The published image is arm64-only.
+#
 # The published package starts out private — to make it a public image, set the
 # package visibility to Public once (repo → Packages → craft-agents-oss →
 # Package settings → Change visibility).
@@ -20,7 +23,8 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    # Native ARM64 runner — builds an arm64 image without QEMU emulation.
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
