@@ -1150,6 +1150,39 @@ export class PiAgent extends BaseAgent {
   }
 
   /**
+   * Append an actionable hint to opaque Amazon Bedrock error events.
+   *
+   * Bedrock request failures (esp. `ValidationException`) reach us through the
+   * Pi SDK, which renders the AWS error body opaquely (often literally
+   * `[object Object]`) and the AWS SDK bypasses our network interceptor, so we
+   * can't recover the raw message. For Bedrock connections we detect the common
+   * validation/authorization shapes and add a hint pointing at the most likely
+   * cause — a model ID that isn't enabled in the configured region or allowed by
+   * the account's permission boundary. Non-Bedrock and already-typed errors pass
+   * through unchanged.
+   */
+  private augmentBedrockErrorEvent(event: AgentEvent): AgentEvent {
+    if (event.type !== 'error' || typeof event.message !== 'string') return event;
+    if (getBackendRuntime(this.config).piAuthProvider !== 'amazon-bedrock') return event;
+
+    const msg = event.message;
+    const looksLikeModelValidation =
+      /validation|\b400\b|\[object Object\]|on-demand throughput|inference profile|not authorized|accessdenied|don'?t have access|isn'?t supported|is not supported/i.test(msg);
+    if (!looksLikeModelValidation) return event;
+
+    const region = getBackendRuntime(this.config).awsRegion || process.env.AWS_REGION || 'the configured region';
+    const hint =
+      `\n\nBedrock rejected the request. The model ID may not be enabled in ${region}, ` +
+      `or not allowed by your account's permission boundary. Check the connection's model ` +
+      `allowlist — use exact, region-qualified IDs (e.g. \`au.anthropic.…\` for ap-southeast-2, ` +
+      `\`us.anthropic.…\` for us-east-1) and confirm the model is enabled in the AWS Bedrock console.`;
+
+    // Avoid double-appending if the hint is already present (e.g. retry paths).
+    if (msg.includes('permission boundary')) return event;
+    return { ...event, message: msg + hint };
+  }
+
+  /**
    * Forward a Pi SDK event from the subprocess through the event adapter.
    */
   private handleSubprocessEvent(event: Record<string, unknown>): void {
@@ -1220,7 +1253,7 @@ export class PiAgent extends BaseAgent {
         });
       }
 
-      this.eventQueue.enqueue(agentEvent);
+      this.eventQueue.enqueue(this.augmentBedrockErrorEvent(agentEvent));
     }
 
     // Turn-completion is now adapter-driven so overflow recovery can hold the
