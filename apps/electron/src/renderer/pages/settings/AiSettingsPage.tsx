@@ -260,6 +260,10 @@ function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, 
       // Use default endpoints for standard providers if no custom baseUrl
       if (!endpoint) {
         if (provider === 'anthropic') endpoint = 'https://api.anthropic.com'
+        else if (provider === 'pi' && connection.piAuthProvider === 'amazon-bedrock' && connection.awsRegion) {
+          // Reflect the configured Bedrock region instead of the provider default (us-east-1)
+          endpoint = `https://bedrock-runtime.${connection.awsRegion}.amazonaws.com`
+        }
         else if (provider === 'pi' && connection.piAuthProvider) {
           endpoint = piBaseUrl
         }

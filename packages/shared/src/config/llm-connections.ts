@@ -182,6 +182,14 @@ export interface LlmConnection {
   customEndpoint?: CustomEndpointConfig;
 
   /**
+   * AWS region for Amazon Bedrock connections (e.g. 'ap-southeast-2').
+   * Persisted on the connection so it survives re-saves and is shown in the UI;
+   * injected as `AWS_REGION` into the Pi subprocess for both IAM and ambient/
+   * environment auth. Only relevant when `piAuthProvider === 'amazon-bedrock'`.
+   */
+  awsRegion?: string;
+
+  /**
    * Behavior when the user sends a message while the agent is still streaming.
    * Optional for backward compat with config.json from before this field existed —
    * read via {@link resolveMidStreamBehavior} which falls back to a per-provider

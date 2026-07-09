@@ -67,6 +67,55 @@ describe('PiAgent Bedrock env handling', () => {
     agent.destroy()
   })
 
+  it('buildAwsEnv injects the configured AWS region for environment auth', async () => {
+    const agent = new PiAgent(createConfig())
+
+    const prevKey = process.env.AWS_ACCESS_KEY_ID
+    const prevSecret = process.env.AWS_SECRET_ACCESS_KEY
+    const prevImds = process.env.AWS_EC2_METADATA_DISABLED
+    delete process.env.AWS_ACCESS_KEY_ID
+    delete process.env.AWS_SECRET_ACCESS_KEY
+    process.env.AWS_EC2_METADATA_DISABLED = 'true'
+
+    // Environment/ambient auth (no stored IAM credential): the region configured
+    // on the connection must still be injected as AWS_REGION.
+    const env = (await (agent as any).buildAwsEnv(
+      null,
+      { piAuthProvider: 'amazon-bedrock', awsRegion: 'ap-southeast-2' },
+    )) as Record<string, string>
+
+    expect(env.AWS_REGION).toBe('ap-southeast-2')
+    expect(env.AWS_BEDROCK_FORCE_HTTP1).toBe('1')
+
+    if (prevKey !== undefined) process.env.AWS_ACCESS_KEY_ID = prevKey
+    if (prevSecret !== undefined) process.env.AWS_SECRET_ACCESS_KEY = prevSecret
+    if (prevImds === undefined) delete process.env.AWS_EC2_METADATA_DISABLED
+    else process.env.AWS_EC2_METADATA_DISABLED = prevImds
+
+    agent.destroy()
+  })
+
+  it('buildAwsEnv keeps the IAM credential region over the connection region', async () => {
+    const agent = new PiAgent(createConfig())
+
+    const env = (await (agent as any).buildAwsEnv(
+      {
+        credential: {
+          type: 'iam',
+          accessKeyId: 'AKIA_TEST',
+          secretAccessKey: 'secret',
+          region: 'eu-central-1',
+        },
+      },
+      { piAuthProvider: 'amazon-bedrock', awsRegion: 'ap-southeast-2' },
+    )) as Record<string, string>
+
+    // A region carried by the IAM credential takes precedence.
+    expect(env.AWS_REGION).toBe('eu-central-1')
+
+    agent.destroy()
+  })
+
   it('buildAwsEnv resolves the AWS credential chain for implicit/environment Bedrock auth', async () => {
     const agent = new PiAgent(createConfig())
 

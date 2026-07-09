@@ -156,6 +156,15 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
         updates.authType = setup.bedrockAuthMethod
       }
 
+      // Persist the AWS region on the connection so it sticks across re-saves,
+      // is shown in the connections list, and is injected as AWS_REGION at
+      // runtime — for both IAM and environment/ambient auth. (Previously region
+      // was only stored inside the IAM credential, so environment-auth Bedrock
+      // connections silently fell back to us-east-1.)
+      if (setup.awsRegion) {
+        updates.awsRegion = setup.awsRegion
+      }
+
       // Resolved Anthropic OAuth identity (issue #838). Threaded through SETUP so
       // it persists on both the new-connection path (addLlmConnection) and the
       // re-auth path (updateLlmConnection) via the shared pendingConnection/updates
