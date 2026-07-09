@@ -2698,6 +2698,8 @@ export function updateLlmConnection(slug: string, updates: Partial<Omit<LlmConne
     piAuthProvider: updates.piAuthProvider !== undefined ? updates.piAuthProvider : existing.piAuthProvider,
     // Custom endpoint protocol (Anthropic/OpenAI compatible)
     customEndpoint: updates.customEndpoint !== undefined ? updates.customEndpoint : existing.customEndpoint,
+    // AWS region for Bedrock connections — preserved across unrelated saves (issue #838 pattern)
+    awsRegion: updates.awsRegion !== undefined ? updates.awsRegion : existing.awsRegion,
     // Mid-stream send behavior (steer vs queue) — read via resolveMidStreamBehavior()
     midStreamBehavior: updates.midStreamBehavior !== undefined ? updates.midStreamBehavior : existing.midStreamBehavior,
     // Resolved Anthropic OAuth identity (issue #838) — preserved across unrelated saves

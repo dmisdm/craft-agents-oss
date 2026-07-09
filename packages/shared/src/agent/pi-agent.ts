@@ -746,7 +746,7 @@ export class PiAgent extends BaseAgent {
    */
   private async buildAwsEnv(
     piAuth: Awaited<ReturnType<PiAgent['getPiAuth']>>,
-    runtime: { piAuthProvider?: string },
+    runtime: { piAuthProvider?: string; awsRegion?: string },
   ): Promise<Record<string, string>> {
     if (runtime.piAuthProvider !== 'amazon-bedrock') return {};
 
@@ -776,6 +776,18 @@ export class PiAgent extends BaseAgent {
           this.debug('No AWS credentials resolved from the default chain; subprocess will inherit the ambient AWS env');
         }
       }
+    }
+
+    // Apply the connection's configured AWS region. The Pi SDK's Bedrock
+    // provider resolves region from AWS_REGION, so this is what makes a
+    // non-default region (e.g. ap-southeast-2) actually take effect — including
+    // for environment/ambient auth, where no IAM credential carries a region.
+    // A region from an IAM credential (set above) takes precedence; otherwise the
+    // explicit connection region wins over any ambient AWS_REGION, since awsEnv is
+    // spread after process.env at spawn time.
+    if (!env.AWS_REGION && runtime.awsRegion) {
+      env.AWS_REGION = runtime.awsRegion;
+      this.debug(`Injecting configured AWS region into subprocess env: ${runtime.awsRegion}`);
     }
 
     // Defensive: force HTTP/1.1 for Bedrock. AWS SDK v3 defaults to HTTP/2
