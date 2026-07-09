@@ -22,6 +22,14 @@
  * The AWS SDK is loaded lazily so the dependency is only paid for by Bedrock
  * users, and any resolution failure fails soft (returns null) — callers then
  * fall back to letting the subprocess inherit the ambient AWS environment.
+ *
+ * `@aws-sdk/credential-provider-node` is not declared as a direct dependency:
+ * it is already installed (and hoisted) via the Pi SDK's Bedrock stack
+ * (`@earendil-works/pi-ai` → `@aws-sdk/client-bedrock-runtime` →
+ * `@aws-sdk/credential-provider-node`). Keeping it implicit avoids adding the
+ * AWS SDK to this package's manifest / lockfile just to reach the canonical
+ * provider chain the Bedrock client already bundles; the lazy import fails
+ * soft if it is ever absent.
  */
 
 import { debug } from '../utils/debug.ts';
